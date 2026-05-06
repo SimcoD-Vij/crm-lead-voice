@@ -1,0 +1,330 @@
+# ============================================================
+# SIMCO VOICE CRM — SINGLE COMMAND FULL STACK
+# docker compose up --build
+# ============================================================
+name: simco-voice-crm
+
+networks:
+  app:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  ollama_data:
+  pocket_tts_cache:
+  espocrm_data:
+  espocrm_mysql:
+  app_data:       # persistent lead/sms/email data for lead-converter
+
+x-dograh-env: &dograh-env
+  ENVIRONMENT: "local"
+  LOG_LEVEL: "INFO"
+  DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
+  REDIS_URL: "redis://:redissecret@redis:6379"
+  BACKEND_API_ENDPOINT: "${DOGRAH_PUBLIC_URL:-http://localhost:8000}"
+  UI_APP_URL: "http://localhost:3010"
+  ENABLE_AWS_S3: "false"
+  MINIO_ENDPOINT: "minio:9000"
+  MINIO_ACCESS_KEY: "minioadmin"
+  MINIO_SECRET_KEY: "minioadmin"
+  MINIO_BUCKET: "voice-audio"
+  MINIO_SECURE: "false"
+  MINIO_PUBLIC_ENDPOINT: "http://localhost:9000"
+  ENABLE_TRACING: "false"
+  ENABLE_TELEMETRY: "false"
+  DEPLOYMENT_MODE: "oss"
+  AUTH_PROVIDER: "local"
+  OSS_JWT_SECRET: "${OSS_JWT_SECRET:-change-me-jwt-secret}"
+  TURN_SECRET: "${TURN_SECRET:-change-me-turn-secret}"
+  TURN_HOST: "localhost"
+  TURN_PORT: "3478"
+  FASTAPI_WORKERS: "1"
+  OLLAMA_BASE_URL: "http://ollama:11434"
+  POCKETTTS_API_URL: "http://pocket-tts:8000"
+
+services:
+
+  # ── INFRASTRUCTURE ────────────────────────────────────────
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    networks: [app]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: --requirepass redissecret
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redissecret", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [app]
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [app]
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/voice-audio &&
+        mc anonymous set download local/voice-audio &&
+        echo 'MinIO bucket ready.'
+      "
+    restart: "no"
+    networks: [app]
+
+  # ── Voice files HTTP server (serves WAV files to pocket-tts via HTTP) ─────────
+  voice-files:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./voice-engine/dograh/voices:/usr/share/nginx/html/voices:ro
+      - ./voice-engine/dataset:/usr/share/nginx/html/dataset:ro
+    networks: [app]
+
+  # ── ESPOCRM ───────────────────────────────────────────────
+
+  espocrm-mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: espo_root
+      MYSQL_DATABASE: espocrm
+      MYSQL_USER: espocrm
+      MYSQL_PASSWORD: espocrm_pass
+    volumes:
+      - espocrm_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks: [app]
+
+  espocrm:
+    image: espocrm/espocrm:latest
+    restart: unless-stopped
+    environment:
+      ESPOCRM_DATABASE_HOST: espocrm-mysql
+      ESPOCRM_DATABASE_NAME: espocrm
+      ESPOCRM_DATABASE_USER: espocrm
+      ESPOCRM_DATABASE_PASSWORD: espocrm_pass
+      ESPOCRM_ADMIN_USERNAME: admin
+      ESPOCRM_ADMIN_PASSWORD: admin
+      ESPOCRM_SITE_URL: "http://localhost:3020"
+    ports:
+      - "3020:80"
+    volumes:
+      - espocrm_data:/var/www/html/data
+    depends_on:
+      espocrm-mysql:
+        condition: service_healthy
+    networks: [app]
+
+  # ── OLLAMA (local LLM — free, unlimited) ──────────────────
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    # No host port binding — all services connect via the internal Docker network
+    # (http://ollama:11434). Remove this comment and add ports: if you need
+    # to reach Ollama from outside Docker (e.g., from curl on your host).
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: "-1"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_NUM_CTX: "4096"
+    networks: [app]
+
+  ollama-init:
+    image: ollama/ollama:latest
+    restart: "no"
+    depends_on: [ollama]
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "echo 'Waiting 10s for Ollama server...' && sleep 10 &&
+       OLLAMA_HOST=http://ollama:11434 ollama pull ${OLLAMA_MODEL:-llama3.1:8b} &&
+       echo 'Model ready!'"
+    networks: [app]
+
+  # ── POCKET TTS (voice cloning) ────────────────────────────
+
+  pocket-tts:
+    build:
+      context: ./voice-engine/dograh
+      dockerfile: pocket-tts.Dockerfile
+    image: simco-pocket-tts:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8100:8000"
+    volumes:
+      - pocket_tts_cache:/root/.cache
+      - ./voice-engine/dataset:/dataset:ro
+    environment:
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_HUB_DOWNLOAD_TIMEOUT: "600"
+      DEFAULT_VOICE_FILE: "/dataset/recording_1_short.wav"
+      OMP_NUM_THREADS: "2"
+    networks: [app]
+
+  # ── DOGRAH API (Pipecat voice engine) ─────────────────────
+
+  dograh-api:
+    build:
+      context: ./voice-engine/dograh
+      dockerfile: api/Dockerfile
+    image: simco-dograh-api:latest
+    restart: unless-stopped
+    volumes:
+      - ./voice-engine/dataset:/app/dataset:ro
+      - ./voice-engine/dograh/voices:/voices:ro
+      # Inject our patched pocket_tts.py into the installed pipecat
+      - ./voice-engine/dograh/pipecat/src/pipecat/services/pocket_tts.py:/root/.local/lib/python3.12/site-packages/pipecat/services/pocket_tts.py:ro
+    environment:
+      <<: *dograh-env
+      TWILIO_ACCOUNT_SID: "${TWILIO_SID:-}"
+      TWILIO_AUTH_TOKEN: "${TWILIO_AUTH:-}"
+      TWILIO_PHONE_NUMBER: "${TWILIO_PHONE:-}"
+      DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      pocket-tts:
+        condition: service_started
+      ollama:
+        condition: service_started
+      voice-files:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/v1/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks: [app]
+
+  dograh-ui:
+    build:
+      context: ./voice-engine/dograh
+      dockerfile: ui/Dockerfile
+    image: simco-dograh-ui:latest
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:8000"
+      NEXTAUTH_URL: "http://localhost:3010"
+      NEXTAUTH_SECRET: "${NEXTAUTH_SECRET:-change-me-nextauth}"
+    ports:
+      - "3010:3010"
+    depends_on:
+      dograh-api:
+        condition: service_healthy
+    networks: [app]
+
+  # ── CLOUDFLARED (Twilio needs a public HTTPS URL) ─────────
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --protocol http2 --url http://dograh-api:8000 --metrics 0.0.0.0:2000
+    networks: [app]
+
+  # ── LEAD CONVERTER (Orchestrator + CRM + SMS + Email) ─────
+
+  lead-converter:
+    build:
+      context: .
+      dockerfile: lead-converter.Dockerfile
+    image: simco-lead-converter:latest
+    restart: unless-stopped
+    volumes:
+      - app_data:/data
+    environment:
+      # Ollama
+      OLLAMA_URL: "http://ollama:11434/api/chat"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-llama3.1:8b}"
+      # Dograh
+      USE_DOGRAH_AI: "true"
+      DOGRAH_API_URL: "http://dograh-api:8000"
+      DOGRAH_API_KEY: "${DOGRAH_API_KEY:-}"
+      DOGRAH_TRIGGER_UUID: "${DOGRAH_TRIGGER_UUID:-}"
+      DOGRAH_WORKFLOW_ID: "${DOGRAH_WORKFLOW_ID:-}"
+      WEBHOOK_BASE_URL: "http://lead-converter:8082"
+      # Twilio
+      TWILIO_SID: "${TWILIO_SID:-}"
+      TWILIO_AUTH: "${TWILIO_AUTH:-}"
+      TWILIO_PHONE: "${TWILIO_PHONE:-}"
+      # Email
+      EMAIL_USER: "${EMAIL_USER:-}"
+      EMAIL_PASS: "${EMAIL_PASS:-}"
+      TRACKING_DOMAIN: "http://lead-converter:8082"
+      # CRM
+      CRM_PUBLIC_URL: "http://espocrm"
+      # Paths
+      DATA_DIR: "/data"
+      # MinIO
+      MINIO_ENDPOINT: "minio"
+      MINIO_PORT: "9000"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin"
+      MINIO_BUCKET: "voice-audio"
+      # Perf
+      MAX_BATCH_SIZE: "${MAX_BATCH_SIZE:-3}"
+      PULSE_INTERVAL_SECONDS: "${PULSE_INTERVAL_SECONDS:-30}"
+      PORT: "8082"
+    ports:
+      - "8082:8082"
+    depends_on:
+      dograh-api:
+        condition: service_healthy
+      espocrm:
+        condition: service_started
+      ollama:
+        condition: service_started
+    networks: [app]

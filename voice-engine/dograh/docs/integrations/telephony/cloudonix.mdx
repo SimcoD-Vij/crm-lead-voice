@@ -1,0 +1,155 @@
+---
+title: "Cloudonix Integration"
+description: "Configure Cloudonix for voice communication in Dograh AI"
+---
+
+## Overview
+
+Cloudonix is a cloud communications platform that enables Dograh voice agents to connect to SIP communications
+platform, either on-premise or in the cloud. In addition, Cloudonix exposes a full set of voice APIs, that provide 
+a full suite of call-control capabilities and more.
+
+## Prerequisites
+
+Before setting up Cloudonix integration, you'll need:
+
+- A [Cloudonix account](https://cockpit.cloudonix.io/onboarding?affiliate=DOGRAH)
+- A Cloudonix domain UUID (or the domain name)
+- A Cloudonix domain API Key
+- A Cloudonix outbound voice trunk service provider connection
+- Dograh AI instance running and accessible
+
+## Video Tutorial
+
+Watch this step-by-step guide to set up Cloudonix with Dograh AI:
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/qLKX0F99jpU?si=tA3zwCsNRKe-WCI1"
+  title="Dograh Cloudonix Setup"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>
+
+## Configuration
+
+### Step 1: Get Cloudonix Credentials
+
+1. Log in to your [Cloudonix Console](https://cockpit.cloudonix.io/onboarding?affiliate=DOGRAH)
+2. Find your **Domain UUID** and **Domain API Key** on the dashboard
+
+### Step 2: Configure in Dograh AI
+
+1. Navigate to **Workflow** → **Phone Call** → **Configure Telephony**
+2. Watch the Cloudonix setup video tutorial above for detailed guidance
+3. Select **Cloudonix** as your provider
+4. Enter your credentials:
+   - Domain UUID
+   - Domain API Key
+5. Click **Save Configuration**
+
+### Step 3: Test Your Configuration
+
+1. Create a test workflow
+2. Click "Test Call" to verify connection
+3. Check call logs for successful connection
+
+## Inbound Calling Setup
+
+The Dograh AI configuration for inbound calling is **identical** to outbound calling - use the same credentials configured above. However, you need additional setup in your Cloudonix Console to route incoming calls to Dograh AI.
+
+### Configure Inbound Trunk and Application
+
+1. **Set Up Inbound Trunk**:
+   - Log in to your [Cloudonix Console](https://cockpit.cloudonix.io)
+   - Navigate to **Trunks** → **Create Inbound Trunk**
+   - Configure your inbound trunk with your voice service provider
+   - Ensure the trunk can receive calls to your desired phone numbers
+
+2. **Create Application for Your Domain**:
+   - Select your domain in the Cloudonix Console
+
+   <img
+     className="block dark:hidden"
+     src="/images/cloudonix-inbound-config-1.png"
+     alt="Cloudonix console showing domain selection"
+   />
+   <img
+     className="hidden dark:block"
+     src="/images/cloudonix-inbound-config-1.png"
+     alt="Cloudonix console showing domain selection"
+   />
+
+   - Create a new application for your domain
+   - Set the webhook URL in the application:
+     ```
+     https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}
+     ```
+
+   <Note>
+   Replace `{workflow_id}` with your actual workflow ID. If using self-hosted Dograh, replace `api.dograh.com` with your domain.
+   </Note>
+
+   <img
+     className="block dark:hidden"
+     src="/images/cloudonix-inbound-config-2.png"
+     alt="Cloudonix application creation with webhook URL configuration"
+   />
+   <img
+     className="hidden dark:block"
+     src="/images/cloudonix-inbound-config-2.png"
+     alt="Cloudonix application creation with webhook URL configuration"
+   />
+
+3. **Verify Configuration**:
+   - Ensure your Dograh AI instance is publicly accessible
+   - Test that webhook URL responds correctly
+   - Verify any firewalls allow Cloudonix's IP ranges
+   - Confirm your inbound trunk is active and receiving calls
+
+### Test Inbound Calling
+
+1. Call your configured phone number from another phone
+2. Verify your Dograh AI voice agent answers and responds
+3. Check call logs in both Dograh AI dashboard and Cloudonix Console
+4. Confirm clear two-way audio communication
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Invalid phone number error">
+    Ensure phone numbers include country code in E.164 format: `+1234567890`
+  </Accordion>
+  
+  <Accordion title="Authentication failed">
+    - Verify Domain UUID and Domain API Key are correct
+    - Check for extra spaces in credentials
+    - Ensure credentials haven't been disabled or deleted in Cloudonix Console
+  </Accordion>
+  
+  <Accordion title="No audio on calls">
+    - Verify WebSocket connection is established
+    - Check firewall rules for WebSocket traffic
+    - Ensure audio pipeline is configured correctly
+  </Accordion>
+  
+  <Accordion title="Inbound calls not reaching voice agent">
+    - Verify inbound trunk is properly configured and active
+    - Check routing rules point to correct Dograh AI webhook endpoint
+    - Ensure webhook URLs are publicly accessible
+    - Confirm phone numbers are correctly routed to your trunk
+  </Accordion>
+  
+  <Accordion title="Voice agent doesn't respond to inbound calls">
+    - Verify organization_id in webhook URLs matches your setup
+    - Check that voice agent workflow is properly configured
+    - Ensure SIP connection instructions are correctly returned
+    - Review webhook logs for error responses
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+- Store credentials securely in the database
+- Test your configuration with a single call before running campaigns
+- Monitor Cloudonix Sessions for usage

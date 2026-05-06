@@ -1,0 +1,8 @@
+{
+  "model": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+  "ref_audio": "D:\\voice tts\\dataset\\trimmed\\ref_12s.wav",
+  "ref_text": "Bella replied that numbers also have unique pronunciation. She slowed counted 0, 1, 2, 3, 4, 5, 6, 7, 8 and 9.",
+  "ref_duration": 12.0,
+  "x_vector_only": false,
+  "built_at": "2026-04-19 09:13:06"
+}

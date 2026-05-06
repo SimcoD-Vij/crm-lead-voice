@@ -1,0 +1,164 @@
+# Dograh AI
+
+<h3 align="center">⭐ <strong>If you find value in this project, please STAR the Github repository to help others discover our FOSS platform!</strong></h3>
+
+<p align="center">
+  <a href="https://docs.dograh.com">
+    <img src="https://img.shields.io/badge/docs-https://docs.dograh.com-blue.svg" alt="Docs: https://docs.dograh.com">
+  </a>
+  <a href="https://deepwiki.com/dograh-hq/dograh">
+    <img src="https://deepwiki.com/badge.svg" alt="Deepwiki: https://deepwiki.com/dograh-hq/dograh">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-BSD%202--Clause-blue.svg" alt="License: BSD 2-Clause">
+  </a>
+  <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ">
+    <img src="https://img.shields.io/badge/chat-on%20Slack-4A154B?logo=slack" alt="Slack Community">
+  </a>
+  <a href="https://www.docker.com/">
+    <img src="https://img.shields.io/badge/docker-ready-blue?logo=docker" alt="Docker Ready">
+  </a>
+</p>
+
+**The open-source alternative to Vapi** - Dograh helps you build your own voice agents with an easy drag-and-drop workflow builder. It's the fastest way to build voice AI agents - from zero to working bot in under 2 minutes (our hard SLA standards).
+
+- **100% open source**, self-hostable platform - no vendor lock-in, unlike proprietary solutions like Vapi
+- **Full control & transparency** - every line of code is open, with built-in AI testing personas and flexible LLM/TTS/STT integration
+- **Maintained by YC alumni and exit founders**, ensuring the future of voice AI stays open, not monopolized
+
+## 🎥 Demo Video
+
+<div align="center">
+  <a href="https://youtu.be/9gPneyf9M9w">
+    <img src="docs/images/video_thumbnail_1.png" alt="Watch Dograh AI Demo Video" width="80%" style="border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+  </a>
+  <br>
+  <em>Click to watch a 2-minute demo of Dograh AI in action</em>
+</div>
+
+## 🚀 Get Started
+
+##### Download and setup Dograh on your Local Machine
+
+> **Note**
+> We collect anonymous usage data to improve the product. You can opt out by setting the `ENABLE_TELEMETRY` to `false` in the below command.
+
+> **Note**
+> If you wish to run the platform on a remote server instead, checkout our [Documentation](https://docs.dograh.com/deployment/docker#option-2:-remote-server-deployment)
+
+```bash
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
+```
+
+> **Note**
+> First startup may take 2-3 minutes to download all images. Once running, open http://localhost:3010 to create your first AI voice assistant!
+> For common issues and solutions, see 🔧 **[Troubleshooting](docs/troubleshooting.md)**.
+
+### 🎙️ Your First Voice Bot
+
+1. **Open Dashboard**: Launch [http://localhost:3010](http://localhost:3010) on your browser
+2. **Choose Call Type**: Select **Inbound** or **Outbound** calling.
+3. **Name Your Bot**: Use a short two-word name (e.g., _Lead Qualification_).
+4. **Describe Use Case**: In 5–10 words (e.g., _Screen insurance form submissions for purchase intent_).
+5. **Launch**: Your bot is ready! Open the bot and click **Web Call** to talk to it.
+6. **No API Keys Needed**: We auto-generate Dograh API keys so you can start immediately. You can switch to your own keys anytime.
+7. **Default Access**: Includes Dograh’s own LLMs, STT, and TTS stack by default.
+8. **Bring Your Own Keys**: Optionally connect your own API keys for LLMs, STT, TTS, or telephony providers like Twilio.
+
+## Quick Summary
+
+⚡ **Open-source alternative to Vapi** - 2-minute setup with hard SLA standards
+
+- 🔧 **No vendor lock-in**: Self-hostable platform vs proprietary SaaS solutions
+- 🤖 **AI Testing Personas**: Test your bots with LoopTalk AI that mimics real customer interactions
+- 🔓 **100% Open Source**: Every line of code is open - no hidden logic, no black boxes (unlike Vapi)
+- 🔄 **Flexible Integration**: Bring your own LLM, TTS, or STT - or use Dograh's APIs
+- ☁️ **Deploy anywhere**: Self-host or use our hosted version at app.dograh.com
+
+## Features
+
+### Voice Capabilities
+
+- Telephony: Built-in telephony integration like Twilio, Vonage, Vobiz, Cloudonix (easily add others)
+- Languages: English support (expandable to other languages)
+- Custom Models: Bring your own TTS/STT models
+- Real-time Processing: Low-latency voice interactions
+
+### Developer Experience
+
+- Zero Config Start: Auto-generated API keys for instant testing
+- Python-Based: Built on Python for easy customization
+- Docker-First: Containerized for consistent deployments
+- Modular Architecture: Swap components as needed
+
+### Testing & Quality
+
+- LoopTalk (Beta): Create AI personas to test your voice agents
+- Workflow Testing: Test specific workflow IDs with automated calls
+- Real-world Simulation: AI personas that mimic actual customer behavior
+
+## Architecture
+
+Architecture diagram _(coming soon)_
+
+## Deployment Options
+
+### Local Development
+
+Refer [Local Setup](https://docs.dograh.com/contribution/setup)
+
+### Self-Hosted Deployment
+
+For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.dograh.com/deployment/docker).
+
+### Production (Self-Hosted)
+
+Production guide coming soon. [Drop in a message](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ) for assistance.
+
+### Cloud Version
+
+Visit [https://www.dograh.com](https://www.dograh.com/) for our managed cloud offering.
+
+## 📚Documentation
+
+You can go to [https://docs.dograh.com](https://docs.dograh.com/) for our documentation.
+
+## 🤝Community & Support
+
+- GitHub Issues: Report bugs or request features
+- Slack: Our Slack community is not just for support — it’s the cornerstone of Dograh AI contributions. Here, you can:
+  - Connect with maintainers and other contributors
+  - Discuss issues and features before coding
+  - Get help with setup and debugging
+  - Stay up to date with contribution sprints
+
+👉 Join us → [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ)
+
+## 🙌 Contributing
+
+We love contributions! Dograh AI is 100% open source and we intend to keep it that way.
+
+### Getting Started
+
+- Fork the repository
+- Create your feature branch (git checkout -b feature/AmazingFeature)
+- Commit your changes (git commit -m 'Add some AmazingFeature')
+- Push to the branch (git push origin feature/AmazingFeature)
+- Open a Pull Request
+
+## 📄 License
+
+Dograh AI is licensed under the [BSD 2-Clause License](LICENSE)- the same license as projects that were used in building Dograh AI, ensuring compatibility and freedom to use, modify, and distribute.
+
+## 🏢 About
+
+Built with ❤️ by **Dograh** (Zansat Technologies Private Limited)
+Founded by YC alumni and exit founders committed to keeping voice AI open and accessible to everyone.
+
+<br><br><br>
+
+  <p align="center">
+    <a href="https://github.com/dograh-hq/dograh/stargazers">⭐ Star us on GitHub</a> |
+    <a href="https://app.dograh.com">☁️ Try Cloud Version</a> |
+    <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ">💬 Join Slack</a>
+  </p>

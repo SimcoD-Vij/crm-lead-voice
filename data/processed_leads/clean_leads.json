@@ -1,0 +1,26 @@
+[
+  {
+    "name": "Ravi Kumar",
+    "phone": "+919876543210",
+    "email": "ravi.kumar@example.com",
+    "status": "CALL_IDLE",
+    "attempt_count": 0,
+    "score": 0,
+    "category": "COLD",
+    "next_action_due": "2026-05-05",
+    "source": "MANUAL",
+    "imported_at": "2026-05-05T00:00:00Z"
+  },
+  {
+    "name": "Priya Sharma",
+    "phone": "+919123456789",
+    "email": "priya.sharma@example.com",
+    "status": "CALL_IDLE",
+    "attempt_count": 0,
+    "score": 0,
+    "category": "COLD",
+    "next_action_due": "2026-05-05",
+    "source": "MANUAL",
+    "imported_at": "2026-05-05T00:00:00Z"
+  }
+]

@@ -1,0 +1,329 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Dograh + PocketTTS — Production-ready Docker Compose
+#
+#  Single-command deploy:   ./deploy.sh
+#  Manual:                  docker compose up -d
+#
+#  All configurable values live in .env (copy from .env.example).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── PostgreSQL (with pgvector extension) ─────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-network
+
+  # ── Redis (session / ARQ job queue) ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      --requirepass redissecret
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redissecret", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-network
+
+  # ── MinIO (S3-compatible object storage for call recordings) ──────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ACCESS_KEY:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_SECRET_KEY:-minioadmin}"
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # ── Ollama (local LLM inference — CPU or GPU) ─────────────────────────────────
+  # CPU mode (default): no special config needed.
+  # GPU mode: run deploy.sh --gpu  OR add the `deploy:` block below.
+  # ── Ollama (local LLM) ────────────────────────────────────────────────────────
+  # CPU mode by default — works on any machine.
+  # GPU mode is injected automatically by deploy.sh when NVIDIA is detected.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      # Keep model resident in RAM — eliminates the 20s cold-start on first call
+      OLLAMA_KEEP_ALIVE: "-1"
+      # CPU thread tuning (no-op on GPU machines)
+      OLLAMA_NUM_PARALLEL: "${OLLAMA_NUM_PARALLEL:-1}"
+    networks:
+      - app-network
+
+  # ── PocketTTS microservice (Kyutai voice cloning TTS) ───────────────────────
+  pocket-tts:
+    build:
+      context: .
+      dockerfile: pocket-tts.Dockerfile
+    image: dograh-pocket-tts:latest
+    container_name: pocket-tts
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8100:8000"
+    volumes:
+      # Persistent model cache (avoids re-downloading the 438 MB model)
+      - pocket_tts_models:/root/.cache/huggingface
+      # Voice WAV files for voice cloning (mount your voice samples here)
+      - voices_data:/voices
+    environment:
+      # HuggingFace token required for first-time model download
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_HUB_DOWNLOAD_TIMEOUT: "600"
+      # Performance: prevent pytorch from spawning too many threads
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      TOKENIZERS_PARALLELISM: "false"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -f /tmp/pocket_tts_ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 48           # Up to 480s (model download can take time)
+      start_period: 30s
+    networks:
+      - app-network
+
+  # ── Voice files HTTP server (serves WAV files to pocket-tts via HTTP) ─────────
+  voice-files:
+    image: nginx:alpine
+    container_name: voice-files
+    restart: unless-stopped
+    volumes:
+      - voices_data:/usr/share/nginx/html/voices:ro
+    networks:
+      - app-network
+    ports:
+      - "127.0.0.1:8101:80"
+
+  # ── Cloudflared (optional public HTTPS tunnel — remove if not needed) ─────────
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --protocol http2 --url http://api:8000 --metrics 0.0.0.0:2000
+    ports:
+      - "127.0.0.1:2000:2000"
+    networks:
+      - app-network
+
+  # ── Dograh API (FastAPI + Pipecat pipeline engine) ────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: dograh-api:latest
+    container_name: dograh-api
+    restart: unless-stopped
+    volumes:
+      - shared_tmp:/tmp
+      - voices_data:/voices:ro
+      # Mount our fixed pocket_tts.py over the pip-installed copy
+      - ./pocket_tts_fixed.py:/root/.local/lib/python3.12/site-packages/pipecat/services/pocket_tts.py:ro
+    environment:
+      ENVIRONMENT: "${ENVIRONMENT:-local}"
+      DEPLOYMENT_MODE: "${DEPLOYMENT_MODE:-oss}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+
+      # Public endpoint — set to your domain when deploying remotely
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
+
+      # Database
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
+
+      # Redis
+      REDIS_URL: "redis://:redissecret@redis:6379"
+
+      # MinIO / Object storage
+      ENABLE_AWS_S3: "false"
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
+      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-minioadmin}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-minioadmin}"
+      MINIO_BUCKET: "${MINIO_BUCKET:-voice-audio}"
+      MINIO_SECURE: "${MINIO_SECURE:-false}"
+
+      # Ollama LLM
+      OLLAMA_BASE_URL: "http://ollama:11434"
+
+      # PocketTTS
+      POCKETTTS_API_URL: "http://pocket-tts:8000"
+
+      # WebRTC TURN server
+      TURN_SECRET: "${TURN_SECRET:-dograh-turn-secret-change-in-production}"
+      TURN_PORT: "${TURN_PORT:-3478}"
+
+      # Security
+      OSS_JWT_SECRET: "${OSS_JWT_SECRET:-ChangeMeInProduction}"
+
+      # Tracing (optional)
+      ENABLE_TRACING: "${ENABLE_TRACING:-false}"
+
+      # Workers
+      FASTAPI_WORKERS: "1"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      pocket-tts:
+        condition: service_started   # pocket-tts may still be loading model
+      ollama:
+        condition: service_started
+      cloudflared:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health').read()\"",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 60s
+    networks:
+      - app-network
+
+  # ── Dograh UI (Next.js frontend) ─────────────────────────────────────────────
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    image: dograh-ui:latest
+    container_name: dograh-ui
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
+      NODE_ENV: "production"
+      DEPLOYMENT_MODE: "${DEPLOYMENT_MODE:-oss}"
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-false}"
+      POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
+      POSTHOG_HOST: "https://us.posthog.com"
+    ports:
+      - "3010:3010"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://127.0.0.1:3010 || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - app-network
+
+  # ── NGINX reverse proxy (optional — enable with --profile remote) ─────────────
+  # Handles TLS termination and routes /api → API, /* → UI.
+  # Place SSL certs in ./certs/  and nginx config in ./nginx/nginx.conf
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    profiles: ["remote"]
+    restart: unless-stopped
+    depends_on:
+      - ui
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    networks:
+      - app-network
+
+  # ── coturn TURN server (optional — enable with --profile remote) ──────────────
+  # Required for reliable WebRTC in production behind NAT/firewalls.
+  coturn:
+    image: coturn/coturn:4.8.0
+    container_name: coturn
+    profiles: ["remote"]
+    restart: unless-stopped
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
+    volumes:
+      - ./config/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    networks:
+      - app-network
+
+# ── Named volumes ──────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  ollama_data:
+    driver: local
+  pocket_tts_models:
+    driver: local
+  voices_data:
+    driver: local
+  shared_tmp:
+    driver: local
+
+# ── Network ────────────────────────────────────────────────────────────────────
+networks:
+  app-network:
+    driver: bridge

@@ -1,0 +1,141 @@
+---
+title: "Docker"
+description: "Deploy Dograh AI using Docker for local development and remote server environments"
+---
+
+Dograh AI can be deployed using Docker in two main configurations. Choose the option that best fits your needs:
+
+- **Option 1**: For local development and testing on your own machine
+- **Option 2**: For remote server deployment with HTTPS (using IP address)
+
+## Option 1: Local Docker Deployment
+
+Watch the video tutorial below for a step-by-step walkthrough of setting up Dograh AI locally with Docker.
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.tella.tv/video/dograh-local-setup-with-docker-5wsf/embed?b=1&title=1&a=1&loop=0&t=0&muted=0&wt=1"
+  title="Dograh Local Setup with Docker"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>
+
+For local development and testing, you can run Dograh AI directly on your machine using Docker with a single command.
+
+### Quick Start
+
+Run this single command to download and start Dograh AI:
+
+```bash
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
+```
+
+This command:
+- Downloads the latest docker-compose.yaml
+- Starts all required services including PostgreSQL, Redis, MinIO, API, and UI
+- Pulls the latest images automatically
+
+### Access the Application
+
+Once running (first startup takes 2-3 minutes), open:
+```
+http://localhost:3010
+```
+
+<Note>
+You can disable telemetry by setting `ENABLE_TELEMETRY=false` in the command above.
+</Note>
+
+## Option 2: Remote Server Deployment
+
+Watch the video tutorial below for a step-by-step walkthrough of deploying Dograh AI to a remote server.
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.tella.tv/video/deploying-dogra-to-a-remote-server-80ai/embed?b=1&title=1&a=1&loop=0&t=0&muted=0&wt=1"
+  title="Deploying Dograh to a Remote Server"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>
+
+Deploy Dograh AI on a remote server to make it accessible from anywhere using your server's IP address. This setup includes HTTPS support via nginx reverse proxy with self-signed certificates. We need to serve the application over HTTPS, since modern browsers only allow microphone permissions for websites being served over HTTPS.
+
+**We highly recommend you set up the platform on a fresh server, so that there are less chances of confliciting dependencies, and ports from other applications.**
+
+### Prerequisites
+
+- A server with Docker and Docker Compose installed. It should have minimum of 8 GB RAM and 4 vCPUs.
+- Public IP address for your server
+- TCP Ports 80, 443, 3478, 5349 and UDP Ports 3478, 5349 and 49152:49200 reachable from Internet (Port 80 and 443 to access the UI and rest of the ports for WebRTC Signaling)
+
+<Note>Please refer to your server hosting provider's documentaion on how you can open these ports in the firewall of the server.</Note>
+
+### Quick Setup
+
+Run the automated setup script that will configure everything for you:
+
+```bash
+curl -o setup_remote.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_remote.sh && chmod +x setup_remote.sh && ./setup_remote.sh
+```
+
+The script will prompt you for:
+- Your server's public IP address
+- A password for the TURN server (optional, press Enter for default)
+
+It will automatically:
+- Download the docker-compose.yaml file
+- Create and configure nginx.conf with your IP address
+- Generate SSL certificates
+- Create an environment file with TURN server configuration
+
+### Start the Application
+
+<Note>
+Please ensure that Docker Compose is installed on your machine before proceeding further. You can check whether its installed by running `docker compose version` command. If its not installed, please install it by following your server provider documentation.
+</Note>
+
+After the setup script completes, start Dograh:
+
+```bash
+cd dograh
+sudo docker compose --profile remote up --pull always
+```
+
+### Access Your Application
+
+Your application will be available at
+```
+https://YOUR_SERVER_IP
+```
+
+<Note>
+Since we are using a self-signed certificate, your browser will show a security warning. You can safely accept it to proceed.
+</Note>
+
+You should be able to create and test a voice agent now. 
+
+### Configuration Notes
+
+- The remote deployment includes an nginx reverse proxy for HTTPS termination
+- File downloads (transcripts, recordings) are automatically routed through nginx
+- WebSocket connections for real-time features are properly proxied
+- The setup uses self-signed certificates - browsers will show a security warning that you can safely accept for testing
+- The TURN server (coturn) is configured for WebRTC NAT traversal
+- For production deployments with proper SSL and domain names, see the [Custom Domain](custom-domain) documentation
+
+### Files Created
+
+The setup script creates the following files in the `dograh/` directory:
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.yaml` | Main Docker Compose configuration |
+| `turnserver.conf` | Configuration for TURN server |
+| `nginx.conf` | nginx reverse proxy configuration with your IP |
+| `generate_certificate.sh` | Script to regenerate SSL certificates |
+| `certs/local.crt` | Self-signed SSL certificate |
+| `certs/local.key` | SSL private key |
+| `.env` | Environment variables for TURN server |
+
+### Next Steps
+Now that you are able to create and test a voice agent, you can setup a custom domain and setup SSL using letsencrypt. Checkout [Custom Domain](custom-domain) for instructions on how to do that.
