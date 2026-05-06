@@ -287,19 +287,44 @@ class PocketTTSService(TTSService):
                         logger.error(f"[PocketTTS] HTTP {resp.status}: {body}")
                         return
 
+                    # One-step lookahead: hold each chunk, yield the PREVIOUS one.
+                    # This lets us apply a fade-out to the LAST chunk only,
+                    # preventing the hard amplitude cut that causes the end "thump".
+                    pending_audio: Optional[bytes] = None
+
                     async for chunk in resp.content.iter_chunked(1200):
                         if self._stop_now or my_response_id != self._current_response_id:
                             logger.info("[PocketTTS] Stopping mid-stream (interrupted)")
+                            pending_audio = None
                             break
 
                         audio = self._resample_chunk(chunk)
                         if audio:
-                            yield TTSAudioRawFrame(
-                                audio=audio,
-                                sample_rate=16000,
-                                num_channels=1,
-                                context_id=context_id,
-                            )
+                            if pending_audio is not None:
+                                # Yield previous chunk — it's confirmed NOT the last
+                                yield TTSAudioRawFrame(
+                                    audio=pending_audio,
+                                    sample_rate=16000,
+                                    num_channels=1,
+                                    context_id=context_id,
+                                )
+                            pending_audio = audio
+
+                    # Yield the final held chunk with a 10ms fade-out applied.
+                    # This smoothly ramps the audio to zero so WebRTC transitions
+                    # to silence without a click/thump.
+                    if pending_audio and not self._stop_now and my_response_id == self._current_response_id:
+                        samples = np.frombuffer(pending_audio, dtype=np.int16).astype(np.float32)
+                        fade_len = min(160, len(samples))   # 10ms at 16kHz
+                        samples[-fade_len:] *= np.linspace(1.0, 0.0, fade_len)
+                        faded = np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
+                        yield TTSAudioRawFrame(
+                            audio=faded,
+                            sample_rate=16000,
+                            num_channels=1,
+                            context_id=context_id,
+                        )
+                        logger.debug("[PocketTTS] Applied 10ms fade-out to final chunk")
 
             except asyncio.CancelledError:
                 logger.info("[PocketTTS] CancelledError — synthesis cancelled by user")
