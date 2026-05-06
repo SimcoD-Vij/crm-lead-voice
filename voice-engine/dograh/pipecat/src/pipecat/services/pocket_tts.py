@@ -70,8 +70,8 @@ class PocketTTSService(TTSService):
         self._session: Optional[aiohttp.ClientSession] = None
         self._synthesis_lock = asyncio.Lock()
 
-        # Byte-level carry-over for int16 chunk boundary alignment
-        self._remainder_buffer = b""
+        # Stateful soxr resampler (reset per utterance)
+        self._resampler: Optional[object] = None
         self._first_chunk = True
 
         # Interruption state
@@ -156,8 +156,17 @@ class PocketTTSService(TTSService):
 
     # ── Resampling: soxr per-chunk (stateless, simple, no bugs) ──────────
 
+    def _new_resampler(self):
+        """Create a fresh stateful soxr resampler for each utterance."""
+        if _HAVE_SOXR:
+            return soxr.ResampleStream(24000, 16000, 1, dtype="float32", quality="HQ")
+        return None
+
     def _resample_chunk(self, chunk: bytes) -> bytes:
-        """Resample one chunk of raw int16 PCM from 24kHz to 16kHz."""
+        """
+        Resample one chunk of raw int16 PCM from 24kHz to 16kHz.
+        Uses soxr.ResampleStream which is STATEFUL — preserving filter state between chunks.
+        """
         # Strip WAV header if present (first chunk sometimes has it)
         if chunk[:4] == b'RIFF':
             chunk = chunk[44:]
@@ -182,9 +191,11 @@ class PocketTTSService(TTSService):
             audio_f32 = audio_i16.astype(np.float32) / 32768.0
 
             # Resample 24kHz → 16kHz
-            if _HAVE_SOXR:
-                resampled = soxr.resample(audio_f32, 24000, 16000, quality="HQ")
+            if _HAVE_SOXR and self._resampler is not None:
+                # Stateful: filter memory is preserved between calls
+                resampled = self._resampler.resample_chunk(audio_f32)
             else:
+                # Fallback: stateless linear interpolation
                 old_len = len(audio_f32)
                 new_len = int(old_len * 16000 / 24000)
                 if new_len == 0:
@@ -196,7 +207,6 @@ class PocketTTSService(TTSService):
                 return b""
 
             # Gentle 4ms fade-in on the very first chunk of each utterance
-            # Prevents a click if TTS starts at a non-zero sample value
             if self._first_chunk:
                 fade_len = min(64, len(resampled))
                 resampled[:fade_len] *= np.linspace(0.0, 1.0, fade_len)
@@ -245,6 +255,7 @@ class PocketTTSService(TTSService):
 
                 # Reset per-utterance state
                 self._remainder_buffer = b""
+                self._resampler = self._new_resampler()
                 self._first_chunk = True
 
                 async with session.post(
@@ -269,6 +280,32 @@ class PocketTTSService(TTSService):
                                 num_channels=1,
                                 context_id=context_id,
                             )
+
+                    # ── Flush resampler delay line ─────────────────────────
+                    # soxr.ResampleStream buffers internally; last=True flushes
+                    # the remaining samples not yet emitted.
+                    if not self._stop_now and my_response_id == self._current_response_id:
+                        if _HAVE_SOXR and self._resampler is not None:
+                            try:
+                                flushed = self._resampler.resample_chunk(
+                                    np.array([], dtype=np.float32), last=True
+                                )
+                                if len(flushed) > 0:
+                                    # Gentle fade-out on the last samples to prevent "tump" click
+                                    fade_len = min(64, len(flushed))
+                                    flushed[-fade_len:] *= np.linspace(1.0, 0.0, fade_len)
+
+                                    final_bytes = np.clip(
+                                        flushed * 32767, -32768, 32767
+                                    ).astype(np.int16).tobytes()
+                                    yield TTSAudioRawFrame(
+                                        audio=final_bytes,
+                                        sample_rate=16000,
+                                        num_channels=1,
+                                        context_id=context_id,
+                                    )
+                            except Exception as e:
+                                logger.debug(f"[PocketTTS] Resampler flush skipped: {e}")
 
             except asyncio.CancelledError:
                 logger.info("[PocketTTS] CancelledError — synthesis cancelled by user")
